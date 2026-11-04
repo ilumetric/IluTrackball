@@ -1062,11 +1062,11 @@ dependencies = [
 
 [[package]]
 name = "ilumx-core"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "ilumx-filter"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "eframe",
  "embed-resource",
@@ -1080,7 +1080,7 @@ dependencies = [
 
 [[package]]
 name = "ilumx-probe"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "ilumx-core",
@@ -1089,7 +1089,7 @@ dependencies = [
 
 [[package]]
 name = "ilumx-replay"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "clap",
  "ilumx-core",
@@ -1097,7 +1097,7 @@ dependencies = [
 
 [[package]]
 name = "ilumx-win"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ilumx-core",
  "windows-sys 0.61.2",
