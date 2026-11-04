@@ -1,281 +1,283 @@
 # IluTrackball
 
-Утилиты для Windows, которые убирают ступенчатое движение курсора у трекбола Logitech MX Ergo.
+Windows tools that remove the stepped cursor motion of the Logitech MX Ergo trackball.
 
-- `ilumx-probe` записывает ввод трекбола и определяет причину ступенек. Он только наблюдает, курсор и другие мыши не трогает.
-- `ilumx-replay` прогоняет записанные логи через режимы фильтра и строит графики для сравнения.
-- `IluTrackball` фильтрует движение мышей вживую. У него небольшое окно настроек, и установка драйвера для него не обязательна.
+- `ilumx-probe` records the trackball's input and finds the cause of the steps. It only observes and leaves the cursor and other mice alone.
+- `ilumx-replay` plays recorded logs through filter modes and draws charts to compare them.
+- `IluTrackball` filters mouse motion live. It has a small settings window and does not require a driver.
 
-Готовая программа лежит в [релизах](https://github.com/ilumetric/IluTrackball/releases/latest): это один файл `IluTrackball.exe`, положи его в любую папку и запусти. Настройки появятся рядом с ним. Файл не подписан, поэтому при первом запуске Windows может показать предупреждение SmartScreen.
+The ready-made program is in [Releases](https://github.com/ilumetric/IluTrackball/releases/latest). It is a single file, `IluTrackball.exe`: put it in any folder and run it. Its settings appear next to it. The file is not signed, so Windows may show a SmartScreen warning the first time you run it.
 
-Обычный порядок: записать логи, посмотреть отчёт, подобрать параметры в replay, включить filter.
+The usual order is to record logs, read the report, pick parameters in replay, and turn on the filter.
 
-## Сборка
+The window of `IluTrackball` is available in English and Russian. `ilumx-probe` and `ilumx-replay` print their prompts and reports in Russian.
 
-Нужны Rust и Visual Studio Build Tools.
+## Building
+
+You need Rust and the Visual Studio Build Tools.
 
 ```bash
 cargo build --release
 ```
 
-Программы появятся в `target\release\`.
+The programs appear in `target\release\`.
 
-## Запись логов
+## Recording logs
 
-Запускай из корня проекта. Логи лягут в `logs\<дата_время>\`.
+Run this from the root of the project. Logs go to `logs\<date_time>\`.
 
 ```bash
 ./target/release/ilumx-probe.exe record
 ```
 
-Программа предложит устройство: MX Ergo выбран по умолчанию, достаточно нажать Enter. Дальше идут четыре сценария по 10 секунд, в каждом можно перезаписать попытку или пропустить её. В конце отчёт появится в консоли и в файле `report.md`.
+The program offers a device. The MX Ergo is selected by default, so pressing Enter is enough. Four 10 second scenarios follow, and each attempt can be recorded again or skipped. At the end the report appears in the console and in `report.md`.
 
-Записываются пакеты только выбранного устройства.
+Only the packets of the selected device are recorded.
 
-## Команды
+## Commands
 
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `ilumx-probe list` | Показывает все мыши и их идентификаторы |
-| `ilumx-probe record` | Записывает сценарии и строит отчёт |
-| `ilumx-probe analyze <папка>` | Заново строит отчёт по готовым логам |
+| `ilumx-probe list` | Shows all mice and their identifiers |
+| `ilumx-probe record` | Records the scenarios and builds a report |
+| `ilumx-probe analyze <folder>` | Builds the report again from existing logs |
 
-Полезные параметры:
+Useful options:
 
-| Параметр | Команды | Значение |
+| Option | Commands | Meaning |
 |---|---|---|
-| `--device N` | `record` | Номер устройства из `list` |
-| `--seconds N` | `record` | Длина сценария, по умолчанию 10 |
-| `--out <папка>` | `record` | Куда писать логи |
-| `--no-prompt` | `record` | Записать все сценарии подряд без вопросов |
-| `--pause-ms N` | `record`, `analyze` | Минимальная пауза stick-slip, по умолчанию 40 мс |
-| `--jump N` | `record`, `analyze` | Минимальный скачок stick-slip, по умолчанию 4 отсчёта |
+| `--device N` | `record` | Device number from `list` |
+| `--seconds N` | `record` | Length of a scenario, 10 by default |
+| `--out <folder>` | `record` | Where to write the logs |
+| `--no-prompt` | `record` | Record all scenarios in a row without asking |
+| `--pause-ms N` | `record`, `analyze` | Shortest stick-slip pause, 40 ms by default |
+| `--jump N` | `record`, `analyze` | Smallest stick-slip jump, 4 counts by default |
 
-## Как читать отчёт
+## Reading the report
 
-| Причина | Чем подтверждается |
+| Cause | What confirms it |
 |---|---|
-| Двойные кадры | Пакеты вдвое больше соседних, идущие в ровном ритме. Интервалы при этом идеальные |
-| Неравномерный опрос | Пропуски, пачки пакетов и паузы там, где шарик крутится быстро |
-| Квантование | На медленных участках почти все шаги равны 1 отсчёту, а 1 отсчёт даёт больше 1 пикселя |
-| Stick-slip | На медленном движении пауза, затем скачок в ту же сторону, а на быстром таких пауз нет |
+| Double frames | Packets twice the size of their neighbours, in a steady rhythm, while the intervals stay perfect |
+| Uneven polling | Gaps, bunched packets and pauses where the ball is turning fast |
+| Quantization | In slow stretches almost all steps are 1 count, and 1 count makes more than 1 pixel |
+| Stick-slip | In slow motion a pause and then a jump in the same direction, with no such pauses in fast motion |
 
-Оценка 1.00 и выше означает явную проблему. Пороги пока подобраны на синтетике и будут уточняться по настоящим логам.
+A score of 1.00 or more means a clear problem. The thresholds were chosen on synthetic data so far and will be refined on real logs.
 
-Настройки Windows читаются в момент построения отчёта, поэтому `analyze` показывает текущие значения, а не те, что были при записи.
+Windows settings are read when the report is built, so `analyze` shows the current values and not those at the time of recording.
 
-## Подбор режима
+## Choosing a mode
 
 ```bash
-./target/release/ilumx-replay.exe logs/<дата_время>
+./target/release/ilumx-replay.exe logs/<date_time>
 ```
 
-Логи прогоняются через набор режимов. Результат лежит в папке `replay` рядом с логами: таблица в консоли, графики в `report.html` и обработанные логи в CSV.
+The logs are played through a set of modes. The result goes to the `replay` folder next to the logs: a table in the console, charts in `report.html` and the processed logs as CSV.
 
-Свои варианты задаются параметром `--spec`, его можно повторять:
+Your own variants are given with `--spec`, which can be repeated:
 
 ```bash
-./target/release/ilumx-replay.exe logs/<дата_время> --spec passthrough --spec debeat:release_ms=30+ema:tau_ms=4
+./target/release/ilumx-replay.exe logs/<date_time> --spec passthrough --spec debeat:release_ms=30+ema:tau_ms=4
 ```
 
-Части режима соединяются знаком `+` и работают по порядку:
+The parts of a mode are joined with `+` and run in order:
 
-| Часть | Что делает | Параметры |
+| Part | What it does | Parameters |
 |---|---|---|
-| `passthrough` | Ничего, эталон задержки | |
-| `debeat` | Срезает двойные шаги и раздаёт излишек дальше. Должен идти первым | `ratio`, `window_ratio`, `max_ratio`, `release_ms`, `period_ms` |
-| `spread` | Размазывает каждый пакет по окну времени | `ms` |
-| `ema` | Простое сглаживание | `tau_ms` |
-| `one_euro` | Сильное сглаживание на медленных движениях и слабое на быстрых | `min_cutoff`, `beta`, `d_cutoff` |
-| `precision` | Постоянный множитель | `factor` |
-| `accel` | Кривая ускорения | `type=linear`: `base`, `slope`, `cap`. `type=power`: `base`, `scale`, `exponent`, `cap`. `type=table`: `points=скорость/усиление;...` |
-| `tail` | Предельная длина хвоста после остановки шарика | `ms` |
+| `passthrough` | Nothing, the reference for delay | |
+| `debeat` | Trims double steps and spreads the excess. Has to come first | `ratio`, `window_ratio`, `max_ratio`, `release_ms`, `period_ms` |
+| `spread` | Spreads each packet over a window of time | `ms` |
+| `ema` | Plain smoothing | `tau_ms` |
+| `one_euro` | Heavy smoothing of slow motion, light smoothing of fast motion | `min_cutoff`, `beta`, `d_cutoff` |
+| `precision` | A constant multiplier | `factor` |
+| `accel` | An acceleration curve | `type=linear`: `base`, `slope`, `cap`. `type=power`: `base`, `scale`, `exponent`, `cap`. `type=table`: `points=speed/gain;...` |
+| `tail` | Longest tail after the ball stops | `ms` |
 
-Скорость для `accel` измеряется в отсчётах за миллисекунду.
+The speed for `accel` is measured in counts per millisecond.
 
-Столбцы таблицы:
+The columns of the table:
 
-| Столбец | Значение |
+| Column | Meaning |
 |---|---|
-| Лаг | Среднее отставание от исходного движения, мс |
-| Неровность | Насколько шаги отличаются от соседних |
-| Двойные шаги | Сколько шагов вдвое больше соседних осталось |
-| Неровность по кадрам | То же для шагов между кадрами монитора. Частота задаётся параметром `--refresh`, по умолчанию 60 Гц |
-| Отставание | Самый большой разрыв с исходной позицией, px |
+| Лаг (lag) | Average delay behind the original motion, ms |
+| Неровность (roughness) | How much steps differ from their neighbours |
+| Двойные шаги (double steps) | How many steps twice the size of their neighbours are left |
+| Неровность по кадрам (roughness by frame) | The same for steps between monitor frames. The rate is set with `--refresh`, 60 Hz by default |
+| Отставание (trailing) | The largest gap from the original position, px |
 
-## Фильтр
+## The filter
 
 ```bash
 ./target/release/IluTrackball.exe
 ```
 
-Слева мышь, пресет и обработка, справа кривая ускорения и тестовая область. Внизу переключатель языка RU/EN и кнопка настроек.
+The mouse, preset and processing are on the left, the acceleration curve and the test area on the right. At the bottom are the RU/EN language switch and the settings button.
 
-### Работа в трее
+### Living in the tray
 
-Крестик прячет окно, а программа продолжает работать. Значок красного шарика лежит у часов, серый значок означает, что фильтр сейчас не действует. При наведении видно почему.
+The close button hides the window and the program keeps working. A red ball next to the clock means the filter is working, a grey one means it is not acting right now. Hover over it to see why.
 
-- Щелчок по значку открывает окно.
-- Правая кнопка открывает меню: состояние, «Открыть», «Пауза» и «Выход».
-- Выйти из программы можно только через это меню или аварийным сочетанием.
-- Вторая запущенная копия просто покажет окно первой.
-- Если перезапустится Проводник, значок вернётся сам.
+- A click on the icon opens the window.
+- The right button opens a menu with the current state, Open, Pause and Quit.
+- The program only quits through this menu or the emergency shortcut.
+- Starting a second copy just shows the window of the first.
+- If Explorer restarts, the icon comes back by itself.
 
-### Обновления
+### Updates
 
-Дважды в сутки программа спрашивает у GitHub, не вышла ли новая версия. Это выключается в настройках пунктом «Проверять обновления», а кнопка «Проверить сейчас» работает всегда. Когда версия вышла, на кнопке настроек появляется зелёная точка, а в меню значка пункт «Обновить до…». Скачивается она только по кнопке «Обновить и перезапустить» в настройках.
+Twice a day the program asks GitHub whether a new version is out. The Check for updates switch in the settings turns this off, and the Check now button always works. When a version is out, a green dot appears on the settings button and the icon menu gets an Update to item. Nothing is downloaded until you press Update and restart in the settings.
 
-Что происходит при обновлении:
+What happens during an update:
 
-1. Новый файл скачивается рядом с программой и сверяется с контрольной суммой из релиза.
-2. Новая версия запускается для проверки: если файл не может стартовать, всё останавливается, а текущая версия остаётся как была.
-3. Файлы меняются местами, программа отпускает мышь и запускает новую версию. Настройки лежат рядом и не меняются.
-4. Старый файл хранится как `IluTrackball.old.exe` первую минуту работы. Если новая версия за это время упадёт, старая вернётся и запустится сама.
+1. The new file is downloaded next to the program and compared with the checksum from the release.
+2. The new version is started as a test. If the file cannot start, everything stops and the current version stays as it was.
+3. The files change places, the program lets go of the mouse and starts the new version. The settings stay where they are and do not change.
+4. The old file is kept as `IluTrackball.old.exe` for the first minute. If the new version fails in that time, the old one comes back and starts by itself.
 
-Контрольная сумма показывает, что файл дошёл целым. Она лежит в том же релизе, поэтому от подмены самого релиза не защищает: здесь программа полагается на HTTPS и на аккаунт GitHub. Файлы принимаются только из релизов этого репозитория.
+The checksum shows that the file arrived whole. It sits in the same release, so it does not protect against a replaced release: for that the program relies on HTTPS and on the GitHub account. Files are only accepted from the releases of this repository.
 
-Если папка программы закрыта на запись, например `Program Files`, обновиться можно только с правами администратора или перенеся программу в другую папку.
+If the program's folder cannot be written to, as with `Program Files`, updating needs administrator rights or moving the program to another folder.
 
-### Мыши
+### Mice
 
-В выпадающем списке все мыши компьютера. У каждой свой переключатель и свой пресет.
+The drop-down list holds all mice of the computer. Each has its own switch and its own preset.
 
-- Выберите мышь в списке: её настройки покажутся в окне.
-- Переключатель рядом со списком включает фильтр для этой мыши. Выключенные мыши работают напрямую, как будто программы нет.
-- Зелёная точка загорается, когда мышь двигается: так удобно понять, какая мышь какая.
-- Тестовая область показывает выбранную мышь даже выключенной, поэтому пресет можно оценить, не трогая курсор.
-- Если выключены все мыши, в их пути не остаётся ни хука, ни драйвера.
+- Choose a mouse in the list and its settings appear in the window.
+- The switch next to the list turns the filter on for that mouse. Mice that are switched off work directly, as if the program were not there.
+- The green dot lights up while a mouse moves, which makes it easy to tell them apart.
+- The test area shows the selected mouse even when it is switched off, so a preset can be judged without touching the cursor.
+- With all mice switched off, neither a hook nor a driver stays in their path.
 
-За одним ресивером Windows не различает мыши, поэтому все они идут одной строкой с общими настройками.
+Windows cannot tell apart the mice on one receiver, so they share one line with common settings.
 
-### Пресеты
+### Presets
 
-Стандартные пресеты зашиты в программу и не меняются. Когда вы двигаете ползунок на стандартном пресете, появляется ваша копия с припиской «(мой)», а исходный остаётся как был.
+Standard presets are built into the program and never change. When you move a slider on a standard preset, your own copy appears with "(mine)" added, and the original stays as it was.
 
-| Кнопка | Что делает |
+| Button | What it does |
 |---|---|
-| Плюс | Сохраняет текущие настройки как новый пресет |
-| Карандаш | Переименовывает ваш пресет |
-| Корзина | Удаляет ваш пресет. Мыши с ним вернутся на «Баланс» |
-| Стрелка вниз | Загружает пресет из файла |
-| Стрелка вверх | Сохраняет пресет в файл `.ilutrack`, его можно передать другому человеку |
+| Plus | Saves the current settings as a new preset |
+| Pencil | Renames your preset |
+| Trash | Deletes your preset. Mice using it go back to Balanced |
+| Down arrow | Loads a preset from a file |
+| Up arrow | Saves the preset to a `.ilutrack` file, which can be passed to someone else |
 
-### Подбор под себя
+### Finding your settings
 
-Кнопка «Подобрать под себя» запускает тест примерно на минуту. На экране одна за другой появляются точки: доведи до точки курсор и нажми. Тест идёт на нейтральных настройках, поэтому результат не зависит от пресета, который стоял до него.
+The Find my settings button starts a test of about a minute. Dots appear one after another: move the cursor to the dot and click. The test runs on neutral settings, so the result does not depend on the preset that was on before it.
 
-| Точки | Что показывают | Что из этого следует |
+| Dots | What they show | What follows from it |
 |---|---|---|
-| Обычные, 12 штук | Ритм связи и двойные шаги | Запись прогоняется через цепочки фильтров, выбирается лучшая по соотношению плавности и задержки |
-| Мелкие и близкие, 10 штук | Самое маленькое движение руки и скорость аккуратной работы | Малый сдвиг даёт примерно один пиксель интерфейса, на этих скоростях кривая остаётся ровной |
-| Дальние, 6 штук | Сколько шарик проходит за бросок и с какой скоростью | Кривая поднимается так, чтобы типичный бросок долетал на нужное расстояние |
+| Ordinary, 12 of them | The rhythm of the link and the double steps | The recording is played through filter chains and the best balance of smoothness and delay is chosen |
+| Small and close together, 10 of them | The smallest movement of the hand and the speed of careful work | The smallest nudge moves the cursor by about one interface pixel, and the curve stays flat at these speeds |
+| Far apart, 6 of them | How far the ball travels in a flick and how fast | The curve rises so that a typical flick travels the wanted distance |
 
-Учитывается скорость указателя в Windows и масштаб экрана. На экране результата настройки уже работают: их можно сразу попробовать, выбрать «Быстрее», «Баланс» или «Плавнее» и задать дальность броска. После сохранения получается обычный пресет «Подбор», который дальше настраивается как любой другой. Отмена возвращает всё как было.
+The Windows pointer speed and the display scale are taken into account. On the result page the settings are already at work: try them right away, choose Quicker, Balanced or Smoother, and set the flick reach. Saving gives an ordinary preset called Tuned, which can be adjusted like any other. Cancelling puts everything back.
 
-Это отправная точка, а не приговор: вкус к плавности и скорости у всех разный.
+This is a place to start from, not a verdict: tastes in smoothness and speed differ.
 
-### Способ работы
+### How it works
 
-В настройках выбирается один из двух способов:
+The settings offer two ways:
 
-| Способ | Что делает | Что нужно |
+| Way | What it does | What it needs |
 |---|---|---|
-| Без драйвера | Фильтрует курсор через хук мыши и `SendInput` | Ничего |
-| Драйвер Interception | Фильтрует на уровне драйвера, в том числе для игр | Драйвер и `interception.dll` |
+| No driver | Filters the cursor with a mouse hook and `SendInput` | Nothing |
+| Interception driver | Filters at driver level, games included | The driver and `interception.dll` |
 
-Начинать стоит с режима «Без драйвера». Программа ничего не устанавливает, а после выхода всё работает как раньше.
+Start with No driver. The program installs nothing, and everything works as before after it quits.
 
-Ограничения режима «Без драйвера»:
+Limits of No driver:
 
-- На игры с Raw Input фильтр не действует: они читают мышь напрямую, и движение дошло бы до них дважды. Поэтому, пока игра держит курсор (он скрыт, а окно на весь экран или курсор заперт в окне), фильтр отходит в сторону. Это выключается в настройках пунктом «Не мешать играм».
-- Пока активно окно с правами администратора, например диспетчер задач, Windows не даёт обычной программе управлять курсором и молча выбрасывает движение. Фильтр в это время отходит в сторону, и мышь работает как обычно. Если такие окна нужны часто, запускайте IluTrackball от имени администратора.
-- Если перейти с одной мыши на другую, один пакет может пройти мимо фильтра или потеряться. Windows не сообщает хуку, от какой мыши пришло событие, поэтому это выясняется через Raw Input чуть позже.
+- The filter does not reach games using Raw Input: they read the mouse directly, and the motion would reach them twice. So while a game holds the cursor (it is hidden and the window fills the screen, or the cursor is locked in), the filter steps aside. Leave games alone in the settings turns this off.
+- While a window with administrator rights is active, such as Task Manager, Windows does not let an ordinary program move the cursor and silently throws the motion away. The filter steps aside for that time and the mouse works as usual. If you need such windows often, run IluTrackball as administrator.
+- When you switch from one mouse to another, one packet may miss the filter or get lost. Windows does not tell a hook which mouse an event came from, so that is found out through Raw Input a moment later.
 
-Выключите «Повышенную точность указателя» в настройках мыши Windows. Её ускорение зависит от размера пакета, поэтому со сглаживанием курсор становится медленнее.
+Turn off "Enhance pointer precision" in the Windows mouse settings. Its acceleration depends on the packet size, so with smoothing the cursor gets slower.
 
-### Управление
+### Controls
 
-| Сочетание | Действие |
+| Shortcut | Action |
 |---|---|
-| `Ctrl+Alt+F11` | Следующий пресет для мыши, которая двигалась последней |
-| `Ctrl+Alt+Pause` | Аварийный выход: немедленно отпустить мышь и завершить программу |
+| `Ctrl+Alt+F11` | Next preset for the mouse that moved last |
+| `Ctrl+Alt+Pause` | Emergency exit: let go of the mouse at once and quit |
 
-Запуск вместе с Windows включается в настройках и по умолчанию выключен. Программа стартует в трее и сразу начинает работать.
+Starting with Windows is turned on in the settings and is off by default. The program then starts in the tray and goes to work at once.
 
-Настройки лежат в `ilutrackball.toml` рядом с программой. Изменения в файле подхватываются на лету. Старый формат настроек переносится сам при первом запуске.
+Settings are kept in `ilutrackball.toml` next to the program. Changes to the file are picked up on the fly. The old settings format is converted by itself on the first run.
 
-Параметр запуска `--demo <лог.csv>` проигрывает лог в тестовой области по кругу, шарик крутить не нужно. Настоящий курсор запись не двигает.
+The `--demo <log.csv>` option plays a log in the test area in a loop, so there is no need to turn the ball. The recording does not move the real cursor.
 
-### Защита от зависания
+### Protection against hangs
 
-Всё это работает и при скрытом окне: перехват не зависит от интерфейса.
+All of this works with the window hidden too: capturing does not depend on the interface.
 
-- Запускается только одна копия программы: вторая просто покажет окно первой.
-- Настройки записываются через временный файл, поэтому сбой не оставит их испорченными.
-- После сна компьютера фильтр продолжает работать, сторожевой поток это учитывает.
-- Программа сравнивает то, что видит хук, с тем, что приходит через Raw Input. Если Windows сняла хук, он ставится снова. Если перестали приходить пакеты, хук отпускает мышь, а регистрация обновляется.
-- Если мышь не удалось опознать, например сразу после переподключения Bluetooth, программа спросит ещё раз и не оставит её навсегда неопознанной.
-- Журнал `ilutrackball.log` рядом с программой показывает каждую смену состояния и программу на переднем плане. Если мышь снова поведёт себя странно, причину надо искать там.
-- Аварийный выход работает из отдельного потока и не зависит от остальной программы.
-- Если поток ввода молчит дольше 0,3 с, хук отпускает мышь. Если молчит 5 с (с драйвером 1,5 с), программа запускает свежую копию в трее и завершается. После этого Windows сама снимает хук и закрывает драйвер.
-- То же самое происходит при падении программы. Копия, упавшая меньше чем через минуту после такого перезапуска, новую не запускает: цикл перезапусков на пути мыши хуже, чем обычная мышь.
-- Служебные потоки при сбое запускаются заново.
-- Если в фильтре случится сбой, движение пойдёт дальше без обработки, а окно об этом сообщит.
-- Клики и колесо MX Ergo не проходят через фильтр. С драйвером они вообще остаются внутри него, а хук перехватывает только движение.
-- Хвост сглаживания обрывается через 200 мс после последнего пакета, значение задаётся частью `tail`.
+- Only one copy of the program runs: a second one just shows the window of the first.
+- Settings are written through a temporary file, so a failure cannot leave them damaged.
+- The filter keeps working after the computer sleeps, and the watchdog allows for that.
+- The program compares what the hook sees with what comes through Raw Input. If Windows removed the hook, it is installed again. If packets stop coming, the hook lets go of the mouse and the registration is renewed.
+- If a mouse cannot be identified, for example right after a Bluetooth reconnect, the program asks again and does not leave it unidentified for good.
+- The log `ilutrackball.log` next to the program shows every change of state and the program in front. If the mouse behaves strangely, that is the place to look.
+- The emergency exit runs on a separate thread and does not depend on the rest of the program.
+- If the input thread stays silent for more than 0.3 s, the hook lets go of the mouse. After 5 s of silence (1.5 s with the driver) the program starts a fresh copy in the tray and quits. Windows then removes the hook and closes the driver by itself.
+- The same happens when the program crashes. A copy that fails within a minute of such a restart starts no new one: a restart loop on the mouse path is worse than a plain mouse.
+- Service threads start again after a failure.
+- If the filter fails, motion carries on unprocessed and the window says so.
+- Clicks and the wheel do not go through the filter. With the driver they stay inside it, and the hook only intercepts motion.
+- The smoothing tail is cut off 200 ms after the last packet. The `tail` part sets this value.
 
-### Драйвер Interception
+### The Interception driver
 
-**Сначала проверьте режим «Без драйвера».** Ставить драйвер стоит, только если его не хватит. Кнопки установки в программе нет намеренно: неудачная установка может оставить компьютер без мыши и клавиатуры.
+**Try No driver first.** Install the driver only if that is not enough. There is deliberately no install button in the program: a failed installation can leave the computer without a mouse and keyboard.
 
-**Важно: драйвер старый, а изоляция ядра («Целостность памяти» в разделе «Безопасность устройства») может запретить его загрузку.** Interception подключается как class-фильтр ко всем мышам и клавиатурам. Если Windows откажется его загружать, после перезагрузки может пропасть весь ввод. На этой системе изоляция ядра включена, и совместимость драйвера с ней не проверена.
+**Important: the driver is old, and Memory integrity (under Core isolation in Device security) may block it from loading.** Interception attaches as a class filter to all mice and keyboards. If Windows refuses to load it, all input may be gone after a reboot. Compatibility of the driver with Memory integrity has not been tested.
 
-Перед установкой создай точку восстановления. Отключать изоляцию ядра или нет, решать тебе: это снижает защиту системы.
+Create a restore point before installing. Whether to turn Memory integrity off is your decision: doing so weakens the protection of the system.
 
-Установка:
+Installation:
 
-1. Скачай `Interception.zip` со страницы [релизов](https://github.com/oblitum/Interception/releases) и распакуй.
-2. Открой командную строку от имени администратора в папке `command line installer`.
-3. Выполни `install-interception.exe /install`.
-4. Перезагрузись.
-5. Скопируй `library\x64\interception.dll` к `IluTrackball.exe`.
-6. Запусти фильтр и выбери режим «Драйвер Interception».
+1. Download `Interception.zip` from its [releases page](https://github.com/oblitum/Interception/releases) and unpack it.
+2. Open a command prompt as administrator in the `command line installer` folder.
+3. Run `install-interception.exe /install`.
+4. Reboot.
+5. Copy `library\x64\interception.dll` next to `IluTrackball.exe`.
+6. Start the filter and choose Interception driver.
 
-Удаление: `install-interception.exe /uninstall` от имени администратора и перезагрузка.
+Removal: run `install-interception.exe /uninstall` as administrator and reboot.
 
-Если ввод пропал после перезагрузки, запусти среду восстановления Windows: три раза подряд прерви загрузку кнопкой питания. Там выбери «Восстановление системы» и откати систему на созданную точку.
+If input is gone after a reboot, start the Windows Recovery Environment by interrupting the boot with the power button three times in a row. Choose System Restore there and roll back to the restore point you created.
 
-Что нужно знать о драйвере:
+What to know about the driver:
 
-- Он может не нравиться античитам в играх.
-- В этом режиме все нажатия клавиш проходят через программу, чтобы работал аварийный выход. Они сразу отправляются дальше и нигде не сохраняются.
-- С драйвером перехватывается только движение MX Ergo: остальные мыши не проходят через программу совсем.
+- Anti-cheat systems in games may object to it.
+- In this mode all key presses pass through the program, so that the emergency exit works. They are sent on at once and are not stored anywhere.
+- With the driver only the mice you switch on are captured: other mice do not pass through the program at all.
 
-## Формат лога
+## Log format
 
-CSV с заголовком `t_qpc_us,dx,dy,buttons,wheel`. Время считается в микросекундах от начала сценария. `buttons` это маска нажатых кнопок: левая 1, правая 2, средняя 4, X1 8, X2 16.
+CSV with the header `t_qpc_us,dx,dy,buttons,wheel`. Time is in microseconds from the start of the scenario. `buttons` is a mask of held buttons: left 1, right 2, middle 4, X1 8, X2 16.
 
-## Тесты
+## Tests
 
 ```bash
 cargo test --workspace
 ```
 
-Обращение к настоящему GitHub вынесено в отдельный тест, ему нужен интернет:
+The call to the real GitHub is a separate test, because it needs the internet:
 
 ```bash
 cargo test -p ilumx-filter -- --ignored the_real_github_answers
 ```
 
-Отладочную сборку можно направить на локальный сервер через переменную `ILUTRACKBALL_TEST_SERVER`, чтобы пройти обновление целиком, ничего не публикуя. В релизной сборке этой возможности нет.
+A debug build can be pointed at a local server with the `ILUTRACKBALL_TEST_SERVER` variable, to go through a whole update without publishing anything. A release build has no such option.
 
-## Выпуск релиза
+## Publishing a release
 
-Релиз собирает GitHub Actions: достаточно отправить тег. Версия в теге должна совпадать с версией в `Cargo.toml`, иначе сборка остановится.
+GitHub Actions builds releases: sending a tag is enough. The version in the tag has to match the version in `Cargo.toml`, or the build stops.
 
-1. Поменяй `version` в `Cargo.toml` на новую, например `0.2.0`.
-2. Собери проект, чтобы обновился `Cargo.lock`, и закоммить изменения.
-3. Поставь тег и отправь его вместе с веткой:
+1. Change `version` in `Cargo.toml`, for example to `0.2.0`.
+2. Build the project so that `Cargo.lock` is updated, and commit the changes.
+3. Create a tag and send it along with the branch:
 
 ```bash
 git tag v0.2.0
@@ -285,4 +287,4 @@ git tag v0.2.0
 git push origin main v0.2.0
 ```
 
-Сборка прогонит тесты, соберёт `IluTrackball.exe`, посчитает контрольную сумму и опубликует релиз с описанием из коммитов. Ход сборки виден на вкладке Actions. После этого программы у всех пользователей предложат обновиться.
+The build runs the tests, builds `IluTrackball.exe`, works out the checksum and publishes a release with notes taken from the commits. Its progress is on the Actions tab. After that the program offers the update to everyone who uses it.
