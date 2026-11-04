@@ -1,0 +1,5 @@
+# Build output, with the settings and the log the program keeps next to itself.
+/target/
+
+# Recordings of a real device: they hold its Bluetooth address.
+/logs/

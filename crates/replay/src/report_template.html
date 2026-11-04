@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ilumx-replay</title>
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --ink: #24262b; --muted: #6b6f78; --line: #e3e1da;
+  --accent: #2f6fd0; --good: #1f8a5b; --raw: #b0b3ba;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181b; --panel: #1f2125; --ink: #e8e8ea; --muted: #9a9ea8; --line: #33363c;
+    --accent: #6fa3ee; --good: #58c493; --raw: #6d717a;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 "Segoe UI", system-ui, sans-serif; }
+main { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 22px; margin: 0 0 2px; }
+.sub { color: var(--muted); margin: 0 0 20px; overflow-wrap: anywhere; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-bottom: 14px; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+button { font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 7px; padding: 4px 12px; cursor: pointer; }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; margin-bottom: 16px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th:nth-child(2), td:nth-child(2) { text-align: left; padding-left: 0; }
+th { color: var(--muted); font-weight: 600; font-size: 13px; }
+tr:last-child td { border-bottom: 0; }
+tbody tr { cursor: pointer; }
+tr.off td { opacity: .42; }
+td.best { color: var(--good); font-weight: 600; }
+.dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; }
+h2 { font-size: 15px; margin: 0 0 8px; }
+canvas { display: block; width: 100%; height: 300px; touch-action: none; cursor: grab; }
+.hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Сравнение режимов</h1>
+  <p class="sub" id="source"></p>
+  <div class="bar">
+    <div class="tabs" id="logs"></div>
+    <div class="tabs" id="axes"></div>
+    <button id="reset">Сбросить масштаб</button>
+  </div>
+  <div class="panel scroll">
+    <table>
+      <thead><tr><th></th><th>Режим</th><th>Лаг, мс</th><th>Неровность</th>
+        <th>Двойные шаги</th><th>Кадры</th><th>Отставание, px</th><th>Итог, px</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="hint">Щелчок по строке показывает или прячет режим на графиках. Меньше значит лучше во всех столбцах.</p>
+  </div>
+  <div class="panel">
+    <h2>Шаг за пакет</h2>
+    <canvas id="steps"></canvas>
+    <p class="hint">Здесь видны ступеньки: двойной шаг торчит вверх. Колесо меняет масштаб, перетаскивание двигает график. «Сбросить масштаб» показывает весь лог.</p>
+  </div>
+  <div class="panel">
+    <h2>Позиция по времени</h2>
+    <canvas id="position"></canvas>
+  </div>
+</main>
+<script>
+const DATA = /*DATA*/null;
+const COLORS = ["#d4553a", "#2f9e6e", "#7a5bd6", "#d39a1c", "#2b8fb8", "#c74f9c", "#5d7f2a", "#8a6a4f"];
+const STEP_BIN_MS = 8.75;
+// The opening view: long enough to show the rhythm of the double steps.
+const FIRST_VIEW_MS = [2000, 3500];
+// The variant shown from the start; passthrough only repeats the raw track.
+const FIRST_SHOWN = 2;
+
+const state = { log: 0, axis: "path", hidden: new Set(), view: null };
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const byId = id => document.getElementById(id);
+
+function currentLog() { return DATA.logs[state.log]; }
+
+function hideAllButBest() {
+  state.hidden = new Set(DATA.logs[0].variants.map(v => v.spec));
+  const shown = DATA.logs[0].variants[FIRST_SHOWN];
+  if (shown) state.hidden.delete(shown.spec);
+}
+
+function openingView(log) {
+  const range = fullRange(log);
+  return range[1] > FIRST_VIEW_MS[1] ? FIRST_VIEW_MS.slice() : range;
+}
+
+function fullRange(log) {
+  const t = log.input.t;
+  return t.length ? [t[0], t[t.length - 1] + 50] : [0, 1];
+}
+
+function series(log) {
+  const list = [{ name: "исходный", color: css("--raw"), track: log.input, width: 1.4 }];
+  log.variants.forEach((v, i) => {
+    if (!state.hidden.has(v.spec)) {
+      list.push({ name: v.spec, color: COLORS[i % COLORS.length], track: v.track, width: 1.6 });
+    }
+  });
+  return list;
+}
+
+function valuesOf(track) {
+  if (state.axis === "x") return track.x;
+  if (state.axis === "y") return track.y;
+  let path = 0;
+  return track.x.map((x, i) => {
+    if (i > 0) path += Math.hypot(x - track.x[i - 1], track.y[i] - track.y[i - 1]);
+    return path;
+  });
+}
+
+// Motion per fixed time bin, so filtered tracks with ticker events compare
+// directly with the raw packets.
+function stepsOf(track, from, to) {
+  const count = Math.ceil((to - from) / STEP_BIN_MS);
+  const bins = new Array(count).fill(0);
+  const values = valuesOf(track);
+  for (let i = 0; i < track.t.length; i++) {
+    const bin = Math.floor((track.t[i] - from) / STEP_BIN_MS);
+    if (bin < 0 || bin >= count) continue;
+    const previous = i > 0 ? values[i - 1] : 0;
+    bins[bin] += state.axis === "path" ? values[i] - previous : Math.abs(values[i] - previous);
+  }
+  return bins.map((value, i) => [from + (i + 0.5) * STEP_BIN_MS, value]);
+}
+
+function prepare(canvas) {
+  const ratio = window.devicePixelRatio || 1;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  canvas.width = width * ratio;
+  canvas.height = height * ratio;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  return { ctx, width, height };
+}
+
+function niceStep(span, parts) {
+  const raw = span / parts;
+  const power = Math.pow(10, Math.floor(Math.log10(raw)));
+  const unit = raw / power;
+  return (unit < 1.5 ? 1 : unit < 3.5 ? 2 : unit < 7.5 ? 5 : 10) * power;
+}
+
+function drawFrame(ctx, box, view, low, high, width, height) {
+  const ink = css("--muted");
+  const line = css("--line");
+  ctx.font = "12px Segoe UI, system-ui, sans-serif";
+  ctx.lineWidth = 1;
+  ctx.textBaseline = "middle";
+  const y = value => box.top + (1 - (value - low) / (high - low)) * (height - box.top - box.bottom);
+  const yStep = niceStep(high - low, 5);
+  ctx.textAlign = "right";
+  for (let v = Math.ceil(low / yStep) * yStep; v <= high; v += yStep) {
+    ctx.strokeStyle = line;
+    ctx.beginPath(); ctx.moveTo(box.left, y(v)); ctx.lineTo(width - box.right, y(v)); ctx.stroke();
+    ctx.fillStyle = ink;
+    ctx.fillText(String(Math.round(v * 100) / 100), box.left - 6, y(v));
+  }
+  const x = t => box.left + (t - view[0]) / (view[1] - view[0]) * (width - box.left - box.right);
+  const xStep = niceStep(view[1] - view[0], 8);
+  ctx.textAlign = "center";
+  for (let t = Math.ceil(view[0] / xStep) * xStep; t <= view[1]; t += xStep) {
+    ctx.fillStyle = ink;
+    ctx.fillText(xStep >= 1000 ? (t / 1000) + " с" : Math.round(t) + " мс", x(t), height - 11);
+  }
+  return { x, y };
+}
+
+function drawLines(ctx, list, scale, box, height) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(box.left, 0, ctx.canvas.clientWidth - box.left - box.right, height);
+  ctx.clip();
+  for (const item of list) {
+    ctx.strokeStyle = item.color;
+    ctx.lineWidth = item.width;
+    ctx.beginPath();
+    item.points.forEach(([t, value], i) => {
+      const px = scale.x(t);
+      const py = scale.y(value);
+      if (i === 0) {
+        ctx.moveTo(px, py);
+      } else if (item.stepped) {
+        ctx.lineTo(px, scale.y(item.points[i - 1][1]));
+        ctx.lineTo(px, py);
+      } else {
+        ctx.lineTo(px, py);
+      }
+    });
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function draw() {
+  const log = currentLog();
+  const view = state.view || fullRange(log);
+  const box = { left: 52, right: 12, top: 10, bottom: 24 };
+
+  // Bins start between two raw packets, so timing jitter cannot push a packet
+  // into the next bin and draw a double step that is not there.
+  const firstPacket = log.input.t.find(t => t >= view[0]) ?? view[0];
+  const binsFrom = firstPacket - STEP_BIN_MS / 2;
+  const stepList = series(log).map(item => ({
+    ...item, stepped: false, points: stepsOf(item.track, binsFrom, view[1]),
+  }));
+  const positionList = series(log).map(item => {
+    const values = valuesOf(item.track);
+    const points = [];
+    for (let i = 0; i < item.track.t.length; i++) {
+      const t = item.track.t[i];
+      if (t >= view[0] - 100 && t <= view[1] + 100) points.push([t, values[i]]);
+    }
+    return { ...item, stepped: true, points };
+  });
+
+  for (const [id, list] of [["steps", stepList], ["position", positionList]]) {
+    const { ctx, width, height } = prepare(byId(id));
+    const all = list.flatMap(item => item.points.map(point => point[1]));
+    let low = all.length ? Math.min(...all) : 0;
+    let high = all.length ? Math.max(...all) : 1;
+    if (id === "steps") low = Math.min(0, low);
+    if (high <= low) high = low + 1;
+    const pad = (high - low) * 0.05;
+    const scale = drawFrame(ctx, box, view, low - pad, high + pad, width, height);
+    drawLines(ctx, list, scale, box, height);
+  }
+}
+
+function fill(values, cells, row, key, digits) {
+  const best = Math.min(...values);
+  const cell = row.insertCell();
+  const value = cells[key];
+  cell.textContent = value.toFixed(digits);
+  if (value === best && Math.max(...values) !== best) cell.className = "best";
+}
+
+function renderTable() {
+  const body = byId("rows");
+  body.textContent = "";
+  const variants = currentLog().variants;
+  variants.forEach((v, i) => {
+    const row = body.insertRow();
+    row.className = state.hidden.has(v.spec) ? "off" : "";
+    row.onclick = () => {
+      if (state.hidden.has(v.spec)) state.hidden.delete(v.spec); else state.hidden.add(v.spec);
+      renderTable();
+      draw();
+    };
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = COLORS[i % COLORS.length];
+    row.insertCell().append(dot);
+    row.insertCell().textContent = v.spec;
+    fill(variants.map(x => x.lag), v, row, "lag", 1);
+    fill(variants.map(x => x.rough), v, row, "rough", 3);
+    fill(variants.map(x => x.doubles), v, row, "doubles", 0);
+    fill(variants.map(x => x.frames), v, row, "frames", 3);
+    fill(variants.map(x => x.maxErr), v, row, "maxErr", 1);
+    fill(variants.map(x => x.endErr), v, row, "endErr", 1);
+  });
+}
+
+function tabs(id, items, active, choose) {
+  const box = byId(id);
+  box.textContent = "";
+  items.forEach(([value, label]) => {
+    const button = document.createElement("button");
+    button.textContent = label;
+    button.className = value === active ? "on" : "";
+    button.onclick = () => choose(value);
+    box.append(button);
+  });
+}
+
+function renderControls() {
+  tabs("logs", DATA.logs.map((log, i) => [i, log.name]), state.log, value => {
+    state.log = value;
+    state.view = openingView(currentLog());
+    refresh();
+  });
+  tabs("axes", [["x", "X"], ["y", "Y"], ["path", "Путь"]], state.axis, value => {
+    state.axis = value;
+    refresh();
+  });
+}
+
+function refresh() {
+  renderControls();
+  renderTable();
+  draw();
+}
+
+function attachZoom(canvas) {
+  canvas.addEventListener("wheel", event => {
+    event.preventDefault();
+    const view = state.view || fullRange(currentLog());
+    const rect = canvas.getBoundingClientRect();
+    const share = Math.min(1, Math.max(0, (event.clientX - rect.left - 52) / (rect.width - 64)));
+    const span = view[1] - view[0];
+    const next = Math.max(40, span * (event.deltaY > 0 ? 1.25 : 0.8));
+    const anchor = view[0] + share * span;
+    state.view = [anchor - share * next, anchor + (1 - share) * next];
+    draw();
+  }, { passive: false });
+
+  let drag = null;
+  canvas.addEventListener("pointerdown", event => {
+    drag = { x: event.clientX, view: state.view || fullRange(currentLog()) };
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener("pointermove", event => {
+    if (!drag) return;
+    const span = drag.view[1] - drag.view[0];
+    const shift = (drag.x - event.clientX) / (canvas.clientWidth - 64) * span;
+    state.view = [drag.view[0] + shift, drag.view[1] + shift];
+    draw();
+  });
+  canvas.addEventListener("pointerup", () => { drag = null; });
+}
+
+byId("source").textContent = DATA.title;
+byId("reset").onclick = () => { state.view = null; draw(); };
+attachZoom(byId("steps"));
+attachZoom(byId("position"));
+window.addEventListener("resize", draw);
+hideAllButBest();
+state.view = openingView(currentLog());
+refresh();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+[package]
+name = "ilumx-replay"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+ilumx-core = { path = "../core" }
