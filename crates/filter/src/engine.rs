@@ -275,6 +275,7 @@ pub struct Shared {
     hands_off: AtomicBool,
     standing: AtomicU8,
     english: AtomicBool,
+    new_version: Mutex<Option<String>>,
     sink: RwLock<Option<Arc<dyn Sink>>>,
     ticker: OnceLock<Thread>,
     last_beat_us: AtomicU64,
@@ -302,6 +303,7 @@ impl Shared {
             hands_off: AtomicBool::new(false),
             standing: AtomicU8::new(Standing::Off as u8),
             english: AtomicBool::new(false),
+            new_version: Mutex::new(None),
             sink: RwLock::new(None),
             ticker: OnceLock::new(),
             last_beat_us: AtomicU64::new(0),
@@ -339,6 +341,17 @@ impl Shared {
 
     pub fn is_english(&self) -> bool {
         self.english.load(Ordering::Relaxed)
+    }
+
+    /// A version that can be installed, for the menu of the tray icon.
+    pub fn new_version(&self) -> Option<String> {
+        self.new_version.lock().ok()?.clone()
+    }
+
+    pub fn set_new_version(&self, version: Option<String>) {
+        if let Ok(mut current) = self.new_version.lock() {
+            *current = version;
+        }
     }
 
     /// The language for what is shown outside the window.

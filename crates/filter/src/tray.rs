@@ -55,6 +55,7 @@ const QUIT_LIMIT_MS: u32 = 3_000;
 const MENU_OPEN: u32 = 1;
 const MENU_PAUSE: u32 = 2;
 const MENU_QUIT: u32 = 3;
+const MENU_UPDATE: u32 = 4;
 
 /// `SetPreferredAppMode` and `FlushMenuThemes` of uxtheme.dll. They have no
 /// names, only these numbers. Without them a Win32 menu is always light.
@@ -66,6 +67,8 @@ const FORCE_DARK: i32 = 2;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TrayCommand {
     Show,
+    /// Show the window at the page where updates are.
+    ShowUpdates,
     Quit,
 }
 
@@ -272,6 +275,9 @@ fn show_menu(window: HWND, context: &Context) {
     let open = wide(lang.tr("Открыть IluTrackball", "Open IluTrackball"));
     let pause = wide(lang.tr("Пауза", "Pause"));
     let quit = wide(lang.tr("Выход", "Quit"));
+    let update = context.shared.new_version().map(|version| {
+        wide(&format!("{} {version}", lang.tr("Обновить до", "Update to")))
+    });
 
     let menu = unsafe { CreatePopupMenu() };
     if menu.is_null() {
@@ -282,6 +288,9 @@ fn show_menu(window: HWND, context: &Context) {
         AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, status.as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, ptr::null());
         AppendMenuW(menu, MF_STRING, MENU_OPEN as usize, open.as_ptr());
+        if let Some(update) = &update {
+            AppendMenuW(menu, MF_STRING, MENU_UPDATE as usize, update.as_ptr());
+        }
         AppendMenuW(menu, pause_flags, MENU_PAUSE as usize, pause.as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, ptr::null());
         AppendMenuW(menu, MF_STRING, MENU_QUIT as usize, quit.as_ptr());
@@ -310,6 +319,7 @@ fn show_menu(window: HWND, context: &Context) {
 
     match chosen as u32 {
         MENU_OPEN => send(context, TrayCommand::Show),
+        MENU_UPDATE => send(context, TrayCommand::ShowUpdates),
         MENU_PAUSE => {
             context.shared.set_paused(!paused);
             (context.wake)();

@@ -58,6 +58,8 @@ pub struct Config {
     pub hotkey: String,
     /// Leaves the mouse alone while a game has it.
     pub games_direct: bool,
+    /// Asks GitHub about new versions now and then.
+    pub check_updates: bool,
     pub device: Vec<DeviceEntry>,
     pub preset: Vec<PresetEntry>,
     /// From the old format, in which one preset was active for the one mouse.
@@ -72,6 +74,7 @@ impl Default for Config {
             backend: Backend::default(),
             hotkey: "Ctrl+Alt+F11".to_string(),
             games_direct: true,
+            check_updates: true,
             device: Vec::new(),
             preset: Vec::new(),
             active_preset: None,

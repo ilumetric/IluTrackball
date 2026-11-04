@@ -19,41 +19,54 @@ use windows_sys::Win32::System::Diagnostics::Debug::{
 use crate::autostart::MINIMIZED_FLAG;
 use crate::engine::emergency_exit;
 use crate::log;
+use crate::update;
 
 /// Tells a new copy that it replaces one that failed.
 pub const RESTARTED_FLAG: &str = "--restarted";
-/// A restarted copy that fails sooner than this will not start another.
-const MIN_LIFE_AFTER_RESTART: Duration = Duration::from_secs(60);
+/// A copy that was restarted or updated has to live this long to be trusted.
+/// If it fails sooner it will not start another.
+pub const TRIAL_LIFE: Duration = Duration::from_secs(60);
 /// What Rust names the thread that runs `main`, and so the window.
 const MAIN_THREAD: &str = "main";
 
 struct Start {
     at: Instant,
     restarted: bool,
+    updated: bool,
 }
 
 static START: OnceLock<Start> = OnceLock::new();
 
-/// Remembers how this copy came to life. Returns true if it replaces another.
+/// Remembers how this copy came to life. Returns true if it replaces another,
+/// which may still be on its way out.
 pub fn note_start(args: &[String]) -> bool {
-    let restarted = args.iter().any(|arg| arg == RESTARTED_FLAG);
+    let has = |flag: &str| args.iter().any(|arg| arg == flag);
+    let (restarted, updated) = (has(RESTARTED_FLAG), has(update::UPDATED_FLAG));
     let _ = START.set(Start {
         at: Instant::now(),
         restarted,
+        updated,
     });
-    restarted
+    restarted || updated
 }
 
-fn may_restart(restarted: bool, lived: Duration) -> bool {
-    !restarted || lived >= MIN_LIFE_AFTER_RESTART
+fn may_restart(on_trial: bool, lived: Duration) -> bool {
+    !on_trial || lived >= TRIAL_LIFE
 }
 
 /// Starts a fresh copy, if that can still help. The copy waits for this one to
 /// let go of the single instance lock.
 fn start_fresh_copy() {
-    let allowed = START
-        .get()
-        .is_none_or(|start| may_restart(start.restarted, start.at.elapsed()));
+    let start = START.get();
+    let new_version_failed =
+        start.is_some_and(|start| start.updated && start.at.elapsed() < TRIAL_LIFE);
+    if new_version_failed && update::roll_back() {
+        log::write("the new version failed, went back to the old one");
+        return;
+    }
+    let allowed = start.is_none_or(|start| {
+        may_restart(start.restarted || start.updated, start.at.elapsed())
+    });
     if !allowed {
         log::write("not restarting: the last restart did not help");
         return;
@@ -106,7 +119,7 @@ pub fn watch_for_failures() {
 mod tests {
     use super::*;
 
-    const LIMIT: Duration = MIN_LIFE_AFTER_RESTART;
+    const LIMIT: Duration = TRIAL_LIFE;
 
     #[test]
     fn a_first_failure_restarts_at_any_age() {
@@ -121,5 +134,14 @@ mod tests {
     #[test]
     fn a_restarted_copy_that_lived_for_a_while_may_restart() {
         assert!(may_restart(true, LIMIT));
+    }
+
+    #[test]
+    fn both_ways_of_replacing_a_copy_make_the_new_one_wait_its_turn() {
+        // `note_start` keeps its first answer, so only the result is looked at.
+        let arguments = |flag: &str| vec!["--minimized".to_string(), flag.to_string()];
+        assert!(note_start(&arguments(RESTARTED_FLAG)));
+        assert!(note_start(&arguments(update::UPDATED_FLAG)));
+        assert!(!note_start(&arguments("--demo")));
     }
 }

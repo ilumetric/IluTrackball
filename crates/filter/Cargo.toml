@@ -16,6 +16,7 @@ eframe = { version = "0.35", default-features = false, features = ["default_font
 ilumx-core = { path = "../core" }
 ilumx-win = { path = "../win" }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 toml = "1"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",

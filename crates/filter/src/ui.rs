@@ -29,6 +29,7 @@ use crate::theme::{
     TEXT2, TEXT3, WARN, WARN_BG, WINDOW_MARGIN,
 };
 use crate::tray::{self, Tray, TrayCommand};
+use crate::update::{self, Failure, UpdateState, Updater};
 use crate::widgets::{self, Icon, SliderSpec};
 use crate::wizard::{Action, Wizard};
 
@@ -54,6 +55,10 @@ const ANIMATE_AFTER_MOTION: Duration = Duration::from_secs(2);
 const IDLE_REPAINT: Duration = Duration::from_millis(250);
 /// A hidden window only looks after the settings file and what the icon asks.
 const HIDDEN_CHECK: Duration = Duration::from_secs(1);
+/// The first look for a new version waits for the network to come up after a
+/// logon, and for the program to settle.
+const FIRST_UPDATE_CHECK: Duration = Duration::from_secs(20);
+const UPDATE_CHECK_PERIOD: Duration = Duration::from_secs(12 * 60 * 60);
 /// About 60 frames per second. egui takes the length of one frame off a delay,
 /// so anything up to 16 ms means at once and the window would redraw flat out.
 const MOTION_REPAINT: Duration = Duration::from_millis(33);
@@ -63,6 +68,8 @@ const ACTIVE_US: u64 = 400_000;
 const DRIVER_RELEASES: &str = "https://github.com/oblitum/Interception/releases";
 const SETTINGS_WIDTH: f32 = 580.0;
 const STATUS_ROW_HEIGHT: f32 = 32.0;
+/// The mark on the settings button when a new version is out.
+const UPDATE_DOT_RADIUS: f32 = 3.5;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Page {
@@ -107,6 +114,10 @@ pub struct SettingsApp {
     wizard: Option<Wizard>,
     /// The mouse the wizard works on and what it had before.
     tuning_mouse: Option<(String, MouseSetting)>,
+    updater: Updater,
+    next_update_check: Instant,
+    /// The new version takes over when the window has closed.
+    start_new_version: bool,
     config: Config,
     config_path: PathBuf,
     config_time: Option<SystemTime>,
@@ -178,6 +189,9 @@ impl SettingsApp {
             quitting: false,
             wizard: None,
             tuning_mouse: None,
+            updater: Updater::new(),
+            next_update_check: Instant::now() + FIRST_UPDATE_CHECK,
+            start_new_version: false,
             config_time: config::modified_time(&config_path),
             config,
             config_path,
@@ -371,6 +385,10 @@ impl SettingsApp {
         for command in Tray::take_commands() {
             match command {
                 TrayCommand::Show => self.show_window(ctx),
+                TrayCommand::ShowUpdates => {
+                    self.show_window(ctx);
+                    self.open_settings();
+                }
                 TrayCommand::Quit => {
                     self.quitting = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -396,6 +414,26 @@ impl SettingsApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    }
+
+    /// Looks for new versions, and lets the new one take over once it is in place.
+    fn look_after_updates(&mut self, ctx: &egui::Context) {
+        let state = self.updater.state();
+        let new_version = match &state {
+            UpdateState::Available(release) => Some(release.version.clone()),
+            _ => None,
+        };
+        self.engine.shared().set_new_version(new_version);
+
+        if state == UpdateState::Ready && !self.start_new_version {
+            self.start_new_version = true;
+            self.quitting = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        if self.config.check_updates && Instant::now() >= self.next_update_check {
+            self.next_update_check = Instant::now() + UPDATE_CHECK_PERIOD;
+            self.updater.check(false);
+        }
     }
 
     fn refresh(&mut self) {
@@ -1189,6 +1227,10 @@ impl SettingsApp {
             if widgets::icon_button(ui, Icon::Settings, hint, true) {
                 self.open_settings();
             }
+            if matches!(self.updater.state(), UpdateState::Available(_)) {
+                let at = pos2(rect.right() - 6.0, rect.center().y - 8.0);
+                ui.painter().circle_filled(at, UPDATE_DOT_RADIUS, GOOD);
+            }
         });
     }
 
@@ -1204,6 +1246,9 @@ impl SettingsApp {
             DriverState::NotAnswering
         };
         self.page = Page::Settings;
+        if self.config.check_updates && self.updater.state() == UpdateState::Unknown {
+            self.updater.check(false);
+        }
     }
 
     fn paint_status(&self, ui: &Ui, rect: Rect) {
@@ -1303,6 +1348,8 @@ impl SettingsApp {
                 }
                 self.general_section(ui);
                 ui.add_space(6.0);
+                self.update_section(ui);
+                ui.add_space(6.0);
                 self.backend_section(ui);
                 ui.add_space(6.0);
                 self.keys_section(ui);
@@ -1351,6 +1398,67 @@ impl SettingsApp {
                     self.say(format!("{text}: {error}"));
                 }
             }
+        }
+    }
+
+    fn update_section(&mut self, ui: &mut Ui) {
+        let lang = self.lang();
+        widgets::section(ui, lang.tr("Обновления", "Updates"));
+        let state = self.updater.state();
+        let (words, color) = update_words(&state, lang);
+        let mut wanted = self.config.check_updates;
+        let mut switched = false;
+        let mut check = false;
+        let mut install = false;
+        let mut notes = None;
+
+        widgets::card(ui, |ui| {
+            switched = widgets::toggle_row(
+                ui,
+                lang.tr("Проверять обновления", "Check for updates"),
+                &mut wanted,
+                Some(lang.tr(
+                    "Дважды в сутки программа спрашивает у GitHub, не вышла ли новая версия. Скачивается она только по кнопке",
+                    "Twice a day the program asks GitHub about a new version. It is only downloaded when you press the button",
+                )),
+            );
+            ui.add_space(2.0);
+            widgets::small_text(ui, &words, color);
+            match &state {
+                UpdateState::Available(release) => {
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        let words = lang.tr("Обновить и перезапустить", "Update and restart");
+                        install = widgets::pill_button(ui, words).clicked();
+                        if widgets::pill_button(ui, lang.tr("Что нового", "What is new")).clicked() {
+                            notes = Some(release.page.clone());
+                        }
+                    });
+                }
+                UpdateState::Unknown | UpdateState::UpToDate | UpdateState::Failed(_) => {
+                    ui.add_space(4.0);
+                    let words = lang.tr("Проверить сейчас", "Check now");
+                    check = widgets::pill_button(ui, words).clicked();
+                }
+                UpdateState::Checking
+                | UpdateState::Downloading { .. }
+                | UpdateState::Ready => {}
+            }
+        });
+
+        if switched {
+            self.config.check_updates = wanted;
+            self.next_update_check = Instant::now();
+            self.mark_unsaved();
+        }
+        if check {
+            self.updater.check(true);
+        }
+        if install {
+            self.updater.install();
+        }
+        if let Some(page) = notes {
+            filedialog::open_external(&page);
         }
     }
 
@@ -1488,6 +1596,63 @@ fn split_right(column: Rect, accel_on: bool) -> (Rect, Rect) {
     (accel, test)
 }
 
+/// The state of updates in words.
+fn update_words(state: &UpdateState, lang: Lang) -> (String, Color32) {
+    let version = update::VERSION;
+    match state {
+        UpdateState::Unknown => (format!("{} {version}", lang.tr("Версия", "Version")), TEXT2),
+        UpdateState::Checking => (lang.tr("Проверяю…", "Checking…").to_string(), TEXT2),
+        UpdateState::UpToDate => (
+            format!("{} {version} {}", lang.tr("Версия", "Version"), lang.tr("последняя", "is the latest")),
+            TEXT2,
+        ),
+        UpdateState::Available(release) => {
+            let new = &release.version;
+            let words = match lang {
+                Lang::Ru => format!("Вышла версия {new}, у вас {version}"),
+                Lang::En => format!("Version {new} is out, you have {version}"),
+            };
+            (words, GOOD)
+        }
+        UpdateState::Downloading { release, share } => (
+            format!(
+                "{} {}: {:.0} %",
+                lang.tr("Загружаю версию", "Downloading version"),
+                release.version,
+                share * 100.0
+            ),
+            TEXT2,
+        ),
+        UpdateState::Ready => (lang.tr("Перезапускаю…", "Restarting…").to_string(), TEXT2),
+        UpdateState::Failed(failure) => (failure_words(*failure, lang).to_string(), WARN),
+    }
+}
+
+fn failure_words(failure: Failure, lang: Lang) -> &'static str {
+    match failure {
+        Failure::Network => lang.tr(
+            "Не удалось связаться с GitHub. Проверьте интернет и попробуйте ещё раз",
+            "Could not reach GitHub. Check the connection and try again",
+        ),
+        Failure::BadAnswer => lang.tr(
+            "GitHub ответил что-то непонятное, обновление отменено",
+            "GitHub gave an unexpected answer, the update was called off",
+        ),
+        Failure::Damaged => lang.tr(
+            "Файл пришёл повреждённым и не установлен. Текущая версия не тронута",
+            "The file arrived damaged and was not installed. This version is untouched",
+        ),
+        Failure::WontStart => lang.tr(
+            "Новая версия не запускается и не установлена. Текущая версия не тронута",
+            "The new version does not start and was not installed. This version is untouched",
+        ),
+        Failure::CannotWrite => lang.tr(
+            "Нет права записи в папку программы. Запустите её от имени администратора или перенесите в другую папку",
+            "The program cannot write to its folder. Run it as administrator or move it elsewhere",
+        ),
+    }
+}
+
 /// A recording played for show must never move the real cursor.
 fn may_reach_the_cursor(key: &str) -> bool {
     key != DEMO_KEY
@@ -1570,6 +1735,7 @@ impl eframe::App for SettingsApp {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.window_events(ctx);
         self.refresh();
+        self.look_after_updates(ctx);
         let moving = self.wizard.is_some()
             || self
                 .last_motion
@@ -1598,6 +1764,9 @@ impl eframe::App for SettingsApp {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.save_now();
+        if self.start_new_version {
+            self.updater.start_installed(self.hidden);
+        }
     }
 }
 
@@ -1607,6 +1776,27 @@ mod tests {
 
     fn column() -> Rect {
         Rect::from_min_size(pos2(400.0, 16.0), vec2(500.0, 620.0))
+    }
+
+    #[test]
+    fn every_state_of_an_update_has_words_in_both_languages() {
+        let states = [
+            UpdateState::Unknown,
+            UpdateState::Checking,
+            UpdateState::UpToDate,
+            UpdateState::Ready,
+            UpdateState::Failed(Failure::Network),
+            UpdateState::Failed(Failure::BadAnswer),
+            UpdateState::Failed(Failure::Damaged),
+            UpdateState::Failed(Failure::WontStart),
+            UpdateState::Failed(Failure::CannotWrite),
+        ];
+        for state in states {
+            let (ru, _) = update_words(&state, Lang::Ru);
+            let (en, _) = update_words(&state, Lang::En);
+            assert!(!ru.is_empty() && !en.is_empty(), "{state:?}");
+            assert_ne!(ru, en, "{state:?}");
+        }
     }
 
     #[test]

@@ -1,0 +1,47 @@
+name: Release
+
+# A tag such as v0.2.0 publishes a release, and the program offers it to everyone
+# from its settings. The tag has to match the version in Cargo.toml: that is the
+# version the program reports about itself.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.94.1 --profile minimal
+          rustup default 1.94.1
+
+      - name: Check the tag against the version
+        run: |
+          $match = Select-String -Path Cargo.toml -Pattern '^version = "(.+)"'
+          $version = $match.Matches[0].Groups[1].Value
+          if ("v$version" -ne $env:GITHUB_REF_NAME) {
+            throw "The tag $env:GITHUB_REF_NAME does not match version $version in Cargo.toml"
+          }
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+      - name: Build
+        run: cargo build --release --locked -p ilumx-filter
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Copy-Item target\release\IluTrackball.exe .
+          $hash = (Get-FileHash IluTrackball.exe -Algorithm SHA256).Hash.ToLower()
+          Set-Content IluTrackball.exe.sha256 "$hash  IluTrackball.exe" -Encoding ascii -NoNewline
+          gh release create $env:GITHUB_REF_NAME IluTrackball.exe IluTrackball.exe.sha256 `
+            --title "IluTrackball $env:GITHUB_REF_NAME" --generate-notes --verify-tag

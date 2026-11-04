@@ -24,6 +24,7 @@ mod theme;
 mod timer;
 mod tray;
 mod ui;
+mod update;
 mod widgets;
 mod wizard;
 
@@ -60,12 +61,16 @@ const LOCK_RETRY: Duration = Duration::from_millis(50);
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let restarted = recovery::note_start(&args);
-    if !take_the_program_lock(restarted) {
+    if args.iter().any(|arg| arg == update::SELF_TEST_FLAG) {
+        std::process::exit(update::SELF_TEST_CODE);
+    }
+    let replaces_a_copy = recovery::note_start(&args);
+    if !take_the_program_lock(replaces_a_copy) {
         show_other_copy();
         return;
     }
     recovery::watch_for_failures();
+    update::tidy_up(args.iter().any(|arg| arg == update::UPDATED_FLAG));
     if let Err(error) = run(&args) {
         log::write(&error);
         show_error(&error);
