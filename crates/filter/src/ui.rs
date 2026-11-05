@@ -16,8 +16,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{GetSystemMetrics, SM_CXSCREEN}
 use crate::autostart;
 use crate::config::{self, Backend, Config, DeviceEntry};
 use crate::curve_editor::{describe, CurveEditor, READY_CURVES};
+use crate::elevation::{self, Refusal, TaskMode, TaskSwitch};
 use crate::engine::{Engine, MouseInfo, MouseSetting, DEMO_KEY};
 use crate::filedialog;
+use crate::foreground;
 use crate::i18n::Lang;
 use crate::interception::{library_path, Interception};
 use crate::log;
@@ -134,10 +136,32 @@ pub struct SettingsApp {
     memory_integrity: bool,
     driver_state: DriverState,
     autostart: bool,
+    admin_task: TaskMode,
+    task_switch: TaskSwitch,
+    /// Fixed for the life of a process, and the settings page asks every frame.
+    elevated: bool,
+    can_elevate: bool,
     unsaved_since: Option<Instant>,
     notice: Option<(String, Instant)>,
     last_check: Option<Instant>,
     last_motion: Option<Instant>,
+}
+
+/// With the administrator task in place, it starts the program, not the Run key.
+fn starts_with_windows(task: TaskMode) -> bool {
+    match task {
+        TaskMode::Off => autostart::is_enabled(),
+        TaskMode::OnDemand => false,
+        TaskMode::AtLogon => true,
+    }
+}
+
+fn task_mode(wanted: bool, at_logon: bool) -> TaskMode {
+    match (wanted, at_logon) {
+        (false, _) => TaskMode::Off,
+        (true, false) => TaskMode::OnDemand,
+        (true, true) => TaskMode::AtLogon,
+    }
 }
 
 /// The name of a mouse in the list.
@@ -182,6 +206,7 @@ impl SettingsApp {
         } = startup;
         let settings = settings_from(&config, &library);
         engine.shared().set_games_direct(config.games_direct);
+        let admin_task = elevation::current();
         let mut app = Self {
             engine,
             tray,
@@ -207,7 +232,11 @@ impl SettingsApp {
             name_entry: NameEntry::None,
             memory_integrity: memory_integrity_on(),
             driver_state: DriverState::NotInstalled,
-            autostart: autostart::is_enabled(),
+            autostart: starts_with_windows(admin_task),
+            admin_task,
+            task_switch: TaskSwitch::default(),
+            elevated: foreground::own_process_elevated(),
+            can_elevate: foreground::own_account_can_elevate(),
             unsaved_since: None,
             notice: None,
             last_check: None,
@@ -414,6 +443,44 @@ impl SettingsApp {
         ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
         ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
         ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+    }
+
+    /// Takes in a change of the administrator task. A copy without rights hands
+    /// over to the task at once: the switch is there to get them.
+    fn look_after_rights(&mut self, ctx: &egui::Context) {
+        let Some((mode, result)) = self.task_switch.take_outcome() else {
+            return;
+        };
+        let lang = self.lang();
+        match result {
+            Ok(()) => {
+                self.admin_task = mode;
+                self.autostart = starts_with_windows(mode);
+            }
+            Err(Refusal::Declined) => return,
+            Err(Refusal::Failed(error)) => {
+                let text = lang.tr("Настройка не изменена", "The setting was not changed");
+                self.say(format!("{text}: {error}"));
+                return;
+            }
+        }
+        if mode == TaskMode::Off || self.elevated {
+            return;
+        }
+        self.save_now();
+        if !self.hidden {
+            elevation::ask_for_window();
+        }
+        if elevation::start_through_task() {
+            self.quitting = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        } else {
+            let _ = elevation::take_window_request();
+            self.say(lang.tr(
+                "Windows не запустила задачу. Программа работает без прав",
+                "Windows did not start the task. The program goes on without the rights",
+            ));
+        }
     }
 
     /// Looks for new versions, and lets the new one take over once it is in place.
@@ -1363,18 +1430,37 @@ impl SettingsApp {
         widgets::section(ui, lang.tr("Общие", "General"));
         let mut wanted = self.autostart;
         let mut changed = false;
+        let task_busy = self.task_switch.is_busy();
+        let mut admin_wanted = self.admin_task != TaskMode::Off;
+        let mut admin_changed = false;
+        let (rights_words, rights_color) = self.rights_words(lang);
         let mut games_direct = self.config.games_direct;
         let mut games_changed = false;
         widgets::card(ui, |ui| {
-            changed = widgets::toggle_row(
-                ui,
-                lang.tr("Запускать вместе с Windows", "Start with Windows"),
-                &mut wanted,
-                Some(lang.tr(
-                    "Программа запустится в трее и сразу начнёт работать",
-                    "The program starts in the tray and goes to work at once",
-                )),
-            );
+            ui.add_enabled_ui(!task_busy, |ui| {
+                changed = widgets::toggle_row(
+                    ui,
+                    lang.tr("Запускать вместе с Windows", "Start with Windows"),
+                    &mut wanted,
+                    Some(lang.tr(
+                        "Программа запустится в трее и сразу начнёт работать",
+                        "The program starts in the tray and goes to work at once",
+                    )),
+                );
+            });
+            ui.add_enabled_ui(!task_busy && self.can_elevate, |ui| {
+                admin_changed = widgets::toggle_row(
+                    ui,
+                    lang.tr("Работать с правами администратора", "Run as administrator"),
+                    &mut admin_wanted,
+                    Some(lang.tr(
+                        "Фильтр не будет останавливаться в окнах администратора и на панели значков. Windows спросит разрешение один раз, дальше программа запускается сама. Держите её в папке, куда не пишут чужие программы: заменивший файл получит те же права",
+                        "The filter will not stop in administrator windows and in the tray panel. Windows asks once, then the program starts by itself. Keep it in a folder other programs do not write to: whoever replaces the file gets the same rights",
+                    )),
+                );
+            });
+            widgets::small_text(ui, rights_words, rights_color);
+            ui.add_space(2.0);
             games_changed = widgets::toggle_row(
                 ui,
                 lang.tr("Не мешать играм", "Leave games alone"),
@@ -1390,7 +1476,11 @@ impl SettingsApp {
             self.engine.shared().set_games_direct(games_direct);
             self.mark_unsaved();
         }
-        if changed {
+        if admin_changed {
+            self.set_task(task_mode(admin_wanted, self.autostart));
+        } else if changed && self.admin_task != TaskMode::Off {
+            self.set_task(task_mode(true, wanted));
+        } else if changed {
             match autostart::set_enabled(wanted) {
                 Ok(()) => self.autostart = wanted,
                 Err(error) => {
@@ -1398,6 +1488,51 @@ impl SettingsApp {
                     self.say(format!("{text}: {error}"));
                 }
             }
+        }
+    }
+
+    fn set_task(&mut self, mode: TaskMode) {
+        if let Err(error) = self.task_switch.set(mode) {
+            let text = self.lang().tr("Настройка не изменена", "The setting was not changed");
+            self.say(format!("{text}: {error}"));
+        }
+    }
+
+    fn rights_words(&self, lang: Lang) -> (&'static str, Color32) {
+        if self.task_switch.is_busy() {
+            let words = lang.tr("Ждём ответа Windows", "Waiting for Windows");
+            return (words, TEXT3);
+        }
+        match (self.elevated, self.admin_task != TaskMode::Off) {
+            (true, true) => (lang.tr("Права администратора есть", "Running as administrator"), GOOD),
+            (true, false) => (
+                lang.tr(
+                    "Права есть до выхода из программы, следующий запуск будет без них",
+                    "The rights last until the program exits, the next start goes without them",
+                ),
+                TEXT3,
+            ),
+            (false, true) => (
+                lang.tr(
+                    "Сейчас работает без прав: Windows не запустила задачу",
+                    "Running without the rights: Windows did not start the task",
+                ),
+                WARN,
+            ),
+            (false, false) if self.can_elevate => (
+                lang.tr(
+                    "Без прав фильтр останавливается в окнах администратора и на панели значков",
+                    "Without the rights the filter stops in administrator windows and in the tray panel",
+                ),
+                TEXT3,
+            ),
+            (false, false) => (
+                lang.tr(
+                    "Нужна учётная запись администратора Windows",
+                    "This takes a Windows administrator account",
+                ),
+                TEXT3,
+            ),
         }
     }
 
@@ -1736,6 +1871,7 @@ impl eframe::App for SettingsApp {
         self.window_events(ctx);
         self.refresh();
         self.look_after_updates(ctx);
+        self.look_after_rights(ctx);
         let moving = self.wizard.is_some()
             || self
                 .last_motion

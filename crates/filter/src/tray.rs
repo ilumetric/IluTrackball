@@ -25,13 +25,13 @@ use windows_sys::Win32::UI::Shell::{
     NOTIFYICONDATAW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    AppendMenuW, CreateIconIndirect, CreatePopupMenu, CreateWindowExW, DefWindowProcW,
-    DestroyMenu, DispatchMessageW, FindWindowW, GetCursorPos, GetMessageW,
-    GetSystemMetrics, PostMessageW, PostQuitMessage, RegisterClassW, RegisterWindowMessageW,
-    SetForegroundWindow, SetMenuDefaultItem, SetTimer, TrackPopupMenu, TranslateMessage, HICON,
-    ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG, SM_CXSMICON, TPM_RETURNCMD,
-    TPM_RIGHTBUTTON, WM_APP, WM_CLOSE, WM_DESTROY, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_TIMER,
-    WNDCLASSW,
+    AppendMenuW, ChangeWindowMessageFilterEx, CreateIconIndirect, CreatePopupMenu,
+    CreateWindowExW, DefWindowProcW, DestroyMenu, DispatchMessageW, FindWindowW, GetCursorPos,
+    GetMessageW, GetSystemMetrics, PostMessageW, PostQuitMessage, RegisterClassW,
+    RegisterWindowMessageW, SetForegroundWindow, SetMenuDefaultItem, SetTimer, TrackPopupMenu,
+    TranslateMessage, HICON, ICONINFO, MF_CHECKED, MF_GRAYED, MF_SEPARATOR, MF_STRING, MSG,
+    MSGFLT_ALLOW, SM_CXSMICON, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_APP, WM_CLOSE, WM_DESTROY,
+    WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP, WM_TIMER, WNDCLASSW,
 };
 
 use crate::engine::{emergency_exit, Shared, Standing};
@@ -433,7 +433,17 @@ fn create_window() -> io::Result<HWND> {
     if window.is_null() {
         return Err(io::Error::last_os_error());
     }
+    let taskbar_created = CONTEXT.get().map_or(0, |context| context.taskbar_created);
+    hear_from_below(window, &[WM_TRAY, WM_SHOW_REQUEST, taskbar_created]);
     Ok(window)
+}
+
+/// With administrator rights this window is above Explorer and above a copy of
+/// the program started by hand, and Windows would drop what they send it.
+fn hear_from_below(window: HWND, messages: &[u32]) {
+    for &message in messages {
+        unsafe { ChangeWindowMessageFilterEx(window, message, MSGFLT_ALLOW, ptr::null_mut()) };
+    }
 }
 
 fn run_tray_thread(ready: mpsc::Sender<io::Result<isize>>) {

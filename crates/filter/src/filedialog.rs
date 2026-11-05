@@ -2,6 +2,7 @@
 
 use std::mem;
 use std::path::PathBuf;
+use std::process::Command;
 use std::ptr;
 
 use windows_sys::core::PCWSTR;
@@ -11,6 +12,8 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
 };
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+use crate::foreground;
 
 const PATH_CHARS: usize = 1024;
 
@@ -80,6 +83,16 @@ fn safe_file_name(name: &str) -> String {
 
 /// Opens a web page or a file with the program Windows has for it.
 pub fn open_external(target: &str) {
+    if foreground::own_process_elevated() {
+        // Started from here, a browser would get full rights too. Explorer
+        // hands the request over to the desktop, which has none.
+        if let Some(folder) = std::env::var_os("SystemRoot") {
+            let explorer = PathBuf::from(folder).join("explorer.exe");
+            if Command::new(explorer).arg(target).spawn().is_ok() {
+                return;
+            }
+        }
+    }
     let target = wide(target);
     let verb = wide("open");
     unsafe {

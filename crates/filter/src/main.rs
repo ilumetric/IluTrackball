@@ -6,6 +6,7 @@ mod autostart;
 mod capture;
 mod config;
 mod curve_editor;
+mod elevation;
 mod engine;
 mod filedialog;
 mod foreground;
@@ -36,13 +37,16 @@ use std::time::{Duration, Instant};
 use eframe::egui;
 use ilumx_core::event_log::{read_csv, RawEvent};
 use windows_sys::core::PCWSTR;
-use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_ALREADY_EXISTS};
-use windows_sys::Win32::System::Threading::CreateMutexW;
+use windows_sys::Win32::Foundation::{
+    CloseHandle, GetLastError, ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS,
+};
+use windows_sys::Win32::System::Threading::{CreateMutexW, OpenMutexW};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FindWindowW, MessageBoxW, SetForegroundWindow, ShowWindow, MB_ICONERROR, MB_OK, SW_RESTORE,
 };
 
 use config::Config;
+use elevation::TaskMode;
 use engine::Engine;
 use hotkey::parse_hotkey;
 use tray::Tray;
@@ -58,13 +62,24 @@ pub const ICON_SIZE: u32 = 64;
 /// How long a restarted copy waits for the failed one to be gone.
 const LOCK_WAIT: Duration = Duration::from_secs(5);
 const LOCK_RETRY: Duration = Duration::from_millis(50);
+const LOCK_NAME: &str = "Local\\IluTrackball.SingleInstance";
+/// How long a copy waits for the one it asked the task to start.
+const TASK_START_LIMIT: Duration = Duration::from_secs(3);
+/// The right to wait on a mutex: all it takes to learn that it is there.
+const SYNCHRONIZE: u32 = 0x0010_0000;
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|arg| arg == update::SELF_TEST_FLAG) {
         std::process::exit(update::SELF_TEST_CODE);
     }
+    if let Some(code) = elevation::run_as_helper(&args) {
+        std::process::exit(code);
+    }
     let replaces_a_copy = recovery::note_start(&args);
+    if !replaces_a_copy && hand_over_to_task(&args) {
+        return;
+    }
     if !take_the_program_lock(replaces_a_copy) {
         show_other_copy();
         return;
@@ -81,18 +96,62 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(Some(0)).collect()
 }
 
+/// With the administrator task in place, a start by hand goes through it, so
+/// the rights do not depend on how the program was started. If the task starts
+/// nothing, this copy carries on: a filter without rights beats no filter.
+fn hand_over_to_task(args: &[String]) -> bool {
+    let not_needed = args.iter().any(|arg| arg == DEMO_FLAG)
+        || foreground::own_process_elevated()
+        || elevation::current() == TaskMode::Off
+        || a_copy_is_running();
+    if not_needed {
+        return false;
+    }
+    if !args.iter().any(|arg| arg == autostart::MINIMIZED_FLAG) {
+        elevation::ask_for_window();
+    }
+    if elevation::start_through_task() {
+        let give_up_at = Instant::now() + TASK_START_LIMIT;
+        while Instant::now() < give_up_at {
+            if a_copy_is_running() {
+                return true;
+            }
+            thread::sleep(LOCK_RETRY);
+        }
+    }
+    log::write("the administrator task did not start, working without its rights");
+    false
+}
+
+/// A copy with full rights keeps its lock shut to this one, which also says
+/// that it is there.
+fn a_copy_is_running() -> bool {
+    let name = wide(LOCK_NAME);
+    let handle = unsafe { OpenMutexW(SYNCHRONIZE, 0, name.as_ptr() as PCWSTR) };
+    if handle.is_null() {
+        return unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
+    }
+    unsafe { CloseHandle(handle) };
+    true
+}
+
 /// Two copies would both swallow and resend the same motion. The system closes
 /// the mutex with the process, so a crash cannot lock the program out. A copy
 /// that replaces a failed one gives it a moment to go.
 fn take_the_program_lock(wait: bool) -> bool {
-    let name = wide("Local\\IluTrackball.SingleInstance");
+    let name = wide(LOCK_NAME);
     let give_up_at = Instant::now() + LOCK_WAIT;
     loop {
         let handle = unsafe { CreateMutexW(ptr::null(), 1, name.as_ptr() as PCWSTR) };
-        if handle.is_null() || unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+        let error = unsafe { GetLastError() };
+        if !handle.is_null() {
+            if error != ERROR_ALREADY_EXISTS {
+                return true;
+            }
+            unsafe { CloseHandle(handle) };
+        } else if error != ERROR_ACCESS_DENIED {
             return true;
         }
-        unsafe { CloseHandle(handle) };
         if !wait || Instant::now() >= give_up_at {
             return false;
         }
@@ -130,7 +189,12 @@ fn run(args: &[String]) -> Result<(), String> {
         .ok();
 
     autostart::follow_program();
-    let start_minimized = args.iter().any(|arg| arg == autostart::MINIMIZED_FLAG);
+    if foreground::own_process_elevated() {
+        log::write("running with administrator rights");
+    }
+    let window_asked_for = elevation::take_window_request();
+    let start_minimized =
+        !window_asked_for && args.iter().any(|arg| arg == autostart::MINIMIZED_FLAG);
     let demo = demo_log(args)?;
     let (engine, problem) = Engine::start(loaded.config.backend, hotkey, demo);
     problems.extend(problem);

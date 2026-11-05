@@ -190,7 +190,7 @@ Start with No driver. The program installs nothing, and everything works as befo
 Limits of No driver:
 
 - The filter does not reach games using Raw Input: they read the mouse directly, and the motion would reach them twice. So while a game holds the cursor (it is hidden and the window fills the screen, or the cursor is locked in), the filter steps aside. Leave games alone in the settings turns this off.
-- While a window with administrator rights is active, such as Task Manager, Windows does not let an ordinary program move the cursor and silently throws the motion away. The filter steps aside for that time and the mouse works as usual. If you need such windows often, run IluTrackball as administrator.
+- While a window with administrator rights is active, such as Task Manager, Windows does not let an ordinary program move the cursor and silently throws the motion away. The filter steps aside for that time and the mouse works as usual. The same happens in the panel of hidden tray icons. Run as administrator in the settings removes both limits, see below.
 - When you switch from one mouse to another, one packet may miss the filter or get lost. Windows does not tell a hook which mouse an event came from, so that is found out through Raw Input a moment later.
 
 Turn off "Enhance pointer precision" in the Windows mouse settings. Its acceleration depends on the packet size, so with smoothing the cursor gets slower.
@@ -203,6 +203,14 @@ Turn off "Enhance pointer precision" in the Windows mouse settings. Its accelera
 | `Ctrl+Alt+Pause` | Emergency exit: let go of the mouse at once and quit |
 
 Starting with Windows is turned on in the settings and is off by default. The program then starts in the tray and goes to work at once.
+
+### Run as administrator
+
+The switch in the settings is off by default. Windows asks for permission once and creates a scheduled task named `IluTrackball`, which then starts the program with full rights and no prompt, whichever way you start it. Start with Windows goes through the same task instead of the Run key. The program restarts when you turn the switch on. When you turn it off, the task is removed, and the rights last until the program quits.
+
+Keep the program in a folder other programs do not write to: whoever replaces `IluTrackball.exe` gets the same rights at its next start. Updates still work the same way, and the new version keeps the rights.
+
+The switch needs a Windows account with administrator rights. Turn it off before you delete the program, or the task stays behind.
 
 Settings are kept in `ilutrackball.toml` next to the program. Changes to the file are picked up on the fly. The old settings format is converted by itself on the first run.
 

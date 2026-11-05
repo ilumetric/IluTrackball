@@ -17,6 +17,7 @@ use windows_sys::Win32::System::Diagnostics::Debug::{
 };
 
 use crate::autostart::MINIMIZED_FLAG;
+use crate::elevation::TASK_FLAG;
 use crate::engine::emergency_exit;
 use crate::log;
 use crate::update;
@@ -47,7 +48,7 @@ pub fn note_start(args: &[String]) -> bool {
         restarted,
         updated,
     });
-    restarted || updated
+    restarted || updated || has(TASK_FLAG)
 }
 
 fn may_restart(on_trial: bool, lived: Duration) -> bool {
@@ -142,6 +143,7 @@ mod tests {
         let arguments = |flag: &str| vec!["--minimized".to_string(), flag.to_string()];
         assert!(note_start(&arguments(RESTARTED_FLAG)));
         assert!(note_start(&arguments(update::UPDATED_FLAG)));
+        assert!(note_start(&arguments(TASK_FLAG)));
         assert!(!note_start(&arguments("--demo")));
     }
 }

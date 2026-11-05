@@ -27,7 +27,7 @@ fn command_line(program: &Path) -> String {
     format!("\"{}\" {MINIMIZED_FLAG}", program.display())
 }
 
-fn read_value(key: &str, name: &str) -> Option<String> {
+pub(crate) fn read_value(key: &str, name: &str) -> Option<String> {
     let (key, name) = (wide(key), wide(name));
     let mut buffer = [0u16; COMMAND_CHARS];
     let mut size = mem::size_of_val(&buffer) as u32;
@@ -49,7 +49,7 @@ fn read_value(key: &str, name: &str) -> Option<String> {
     Some(String::from_utf16_lossy(&buffer[..length]))
 }
 
-fn write_value(key: &str, name: &str, text: &str) -> Result<(), String> {
+pub(crate) fn write_value(key: &str, name: &str, text: &str) -> Result<(), String> {
     let (key, name, text) = (wide(key), wide(name), wide(text));
     let status = unsafe {
         RegSetKeyValueW(
@@ -68,7 +68,7 @@ fn write_value(key: &str, name: &str, text: &str) -> Result<(), String> {
     }
 }
 
-fn delete_value(key: &str, name: &str) -> Result<(), String> {
+pub(crate) fn delete_value(key: &str, name: &str) -> Result<(), String> {
     let (key, name) = (wide(key), wide(name));
     let status = unsafe {
         RegDeleteKeyValueW(
